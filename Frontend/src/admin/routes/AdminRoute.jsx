@@ -1,13 +1,24 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate } from "react-router-dom";
 
 export default function AdminRoute({ children }) {
-  const userEmail = localStorage.getItem('userEmail');
-  const isAdmin = localStorage.getItem('isAdmin') === 'true'; // Or check backend role
+  const token = localStorage.getItem("access_token");
+  const role = localStorage.getItem("role");
 
-  // If not logged in or not an admin, redirect to login/dashboard
-  if (!userEmail) {
-    return <Navigate to="/" replace />;
+  console.log("[AdminRoute] token:",!!token, "role:", role); // DEBUG
+
+  if (!token) return <Navigate to="/login" replace />;
+
+  if (role!== "admin") {
+    // Don't return null — show why it's blank!
+    return (
+      <div style={{padding:40}}>
+        <h2>Access Denied</h2>
+        <p>Your current role is: <b>{role || "no role"}</b></p>
+        <p>You need admin role. Login as admin@accessiq.com</p>
+        <p>Debug: token exists? {token? "Yes" : "No"}</p>
+        <a href="/login">Go to Login</a>
+      </div>
+    );
   }
-
   return children;
 }
