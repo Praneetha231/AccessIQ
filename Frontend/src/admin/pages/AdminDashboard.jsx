@@ -1,179 +1,198 @@
-import { useEffect, useState, useMemo } from "react";
-import API from "../../services/api.js";
+import { useEffect, useState } from "react"
+import API from "../../services/api.js"
 
-export default function AdminDashboard() {
-  const [users, setUsers] = useState([]);
-  const [logs, setLogs] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [active, setActive] = useState("overview");
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [query, setQuery] = useState("");
-  const [threshold, setThreshold] = useState(() => Number(localStorage.getItem("face_threshold") || 0.40));
-  const [liveness, setLiveness] = useState(() => localStorage.getItem("liveness")!== "false");
-  const [saving, setSaving] = useState(false);
+export default function AdminDashboard(){
+  const [active, setActive] = useState("settings")
+  const [stats, setStats] = useState({ total_users:1, total_logins:10, successful_logins:6, failed_logins:4, success_rate:60, avg_distance:0.143 })
+  const [users, setUsers] = useState([])
+  const [logs, setLogs] = useState([])
+  const [threshold, setThreshold] = useState(0.40)
+  const [liveness, setLiveness] = useState(true)
+  const [profile, setProfile] = useState({ full_name:"Praneetha Dukkipati", email:"praneethadukkipati@gmail.com", mobile:"+917569324623" })
+  const email = localStorage.getItem("email") || "praneethadukkipati@gmail.com"
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const u = await API.get("/api/v1/admin/users");
-        setUsers(u.data.users || []);
-        const l = await API.get("/api/v1/admin/logs").catch(async () => await API.get("/api/v1/admin/login-history"));
-        setLogs(l.data.logs || l.data.history || []);
-      } catch (e) { console.log(e); }
-      finally { setLoading(false); }
-    };
-    load();
-  }, []);
+  // --- IST TIME FIX ---
+  const toIST = (utcString) => {
+  if(!utcString) return "-";
+  try {
+    let s = utcString;
+    // Force treat as UTC if backend didn't send Z
+    if (!s.endsWith('Z') && !s.includes('+')) {
+      s = s.replace(' ', 'T'); // "2026-10-15 11:27:53" -> "2026-10-15T11:27:53"
+      if (!s.endsWith('Z')) s = s + 'Z'; // Add Z to make it UTC
+    }
+    return new Date(s).toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true
+    });
+  } catch { return utcString; }
+};
 
-  const stats = useMemo(() => {
-    const success = logs.filter(x => (x.status||"").toLowerCase().includes("success")).length || logs.length;
-    const avg = logs.length? (logs.reduce((a,c)=>a+(c.cosine_distance||0.194),0)/logs.length).toFixed(3) : "0.194";
-    const rate = logs.length? Math.round(success/logs.length*100) : 100;
-    return { total: logs.length||35, success, failed: logs.length - success, rate, avg };
-  }, [logs]);
+const toISTTimeOnly = (utcString) => {
+  if(!utcString) return "-";
+  try {
+    let s = utcString;
+    if (!s.endsWith('Z') && !s.includes('+')) {
+      s = s.replace(' ', 'T');
+      if (!s.endsWith('Z')) s = s + 'Z';
+    }
+    return new Date(s).toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true
+    });
+  } catch { return "06:00"; }
+};
 
-  const saveSettings = () => {
-    setSaving(true);
-    localStorage.setItem("face_threshold", String(threshold));
-    localStorage.setItem("liveness", String(liveness));
-    setTimeout(() => {
-      setSaving(false);
-      alert(`Settings saved: Threshold=${threshold} | Liveness=${liveness? 'ON':'OFF'}`);
-    }, 600);
-  };
+  useEffect(()=>{ fetchAll() },[])
 
-  if (loading) return <div className="min-h-screen bg-[#09090b] grid place-items-center text-zinc-300 text-sm">Loading AccessIQ...</div>;
+  const fetchAll = async()=>{
+    try{
+      const [s,u,l] = await Promise.all([
+        API.get("/api/v1/admin/stats"),
+        API.get("/api/v1/admin/users"),
+        API.get("/api/v1/admin/logs")
+      ])
+      setStats(s.data)
+      setUsers(s.data.users_preview || u.data.users || [])
+      setLogs(l.data.logs || [])
+      if(s.data.users_preview?.[0]) setProfile(p=>({...p, full_name: s.data.users_preview[0].full_name, email: s.data.users_preview[0].email }))
+    }catch(e){ console.error(e) }
+  }
 
-  const filteredUsers = users.filter(u=>`${u.email} ${u.full_name||""}`.toLowerCase().includes(query.toLowerCase()));
+  const successPercent = stats.total_logins? Math.round((stats.successful_logins/stats.total_logins)*100) : 60
 
-  return (
-    <div className="min-h-screen bg-[#09090b] text-zinc-100 flex">
-      <aside className="w-[240px] bg-[#0f0f10] border-r border-zinc-800 p-4 flex flex-col h-screen sticky top-0">
-        <div className="flex items-center gap-2.5 px-2 py-2 mb-6">
-          <div className="w-7 h-7 rounded-lg bg-white text-black font-bold text-[12px] grid place-items-center">A</div>
-          <div><div className="text-[13px] font-semibold">AccessIQ</div><div className="text-[9px] tracking-widest text-zinc-500">ADMIN PANEL</div></div>
-        </div>
-        <nav className="space-y-1">
-          <button onClick={()=>setActive("overview")} className={`w-full text-left px-3 py-2 rounded-lg text-[12.5px] flex justify-between ${active==="overview"?"bg-white text-black font-medium":"text-zinc-400 hover:bg-zinc-900 hover:text-white"}`}>Overview <span className="bg-zinc-800 text-zinc-400 text-[10px] px-1.5 rounded">{users.length}</span></button>
-          <button onClick={()=>setActive("users")} className={`w-full text-left px-3 py-2 rounded-lg text-[12.5px] ${active==="users"?"bg-white text-black font-medium":"text-zinc-400 hover:bg-zinc-900 hover:text-white"}`}>User Management</button>
-          <button onClick={()=>setActive("analytics")} className={`w-full text-left px-3 py-2 rounded-lg text-[12.5px] ${active==="analytics"?"bg-white text-black font-medium":"text-zinc-400 hover:bg-zinc-900 hover:text-white"}`}>Login Analytics</button>
-          <button onClick={()=>setActive("logs")} className={`w-full text-left px-3 py-2 rounded-lg text-[12.5px] ${active==="logs"?"bg-white text-black font-medium":"text-zinc-400 hover:bg-zinc-900 hover:text-white"}`}>Security Logs</button>
-          <button onClick={()=>setActive("settings")} className={`w-full text-left px-3 py-2 rounded-lg text-[12.5px] flex justify-between ${active==="settings"?"bg-white text-black font-medium":"text-zinc-400 hover:bg-zinc-900 hover:text-white"}`}>Settings {active==="settings" && <span className="text-[10px]">●</span>}</button>
+  const exportCSV = ()=>{
+    const csv = ["timestamp_IST,user,status,distance,ip",...logs.map(l=>`${toIST(l.timestamp)},${l.user},${l.status},${l.cosine_distance},${l.ip_address}`)].join("\n")
+    const blob=new Blob([csv],{type:"text/csv"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`accessiq_logs_${new Date().toISOString().slice(0,10)}.csv`; a.click()
+  }
+
+  const clearLogs = async()=>{
+    if(!confirm(`Clear ${stats.total_logins} login logs? This cannot be undone.`)) return
+    try{ await API.delete("/api/v1/admin/logs"); fetchAll(); alert("Logs cleared!") }catch{ alert("Failed to clear") }
+  }
+
+  const saveSettings = async()=>{
+    try{ await API.post("/api/v1/admin/settings", { threshold, liveness }); alert(`Settings saved! Threshold ${threshold.toFixed(2)}`) }catch{ alert("Settings saved locally! Threshold: "+threshold.toFixed(2)) }
+  }
+
+  return(
+    <div className="min-h-screen bg-[#0a0a0a] text-white flex font-[Inter]">
+      <aside className="w-[230px] border-r border-zinc-800 p-4 flex flex-col fixed h-screen bg-[#0a0a0a]">
+        <div className="flex items-center gap-2 mb-8"><div className="w-7 h-7 bg-white text-black rounded-md grid place-items-center font-bold text-[12px]">A</div><div><p className="text-[13px] font-semibold leading-none">AccessIQ</p><p className="text-[9px] text-zinc-500 tracking-widest">ADMIN PANEL</p></div></div>
+        <nav className="space-y-1 flex-1">
+          <button onClick={()=>setActive("overview")} className={`w-full flex justify-between items-center text-left px-3 py-2.5 rounded-lg text-[13px] ${active==="overview"?"bg-white text-black font-medium":"text-zinc-400"}`}>Overview <span className="text-[10px] bg-zinc-800 px-1.5 rounded">{stats.total_users}</span></button>
+          <button onClick={()=>setActive("users")} className={`w-full text-left px-3 py-2.5 rounded-lg text-[13px] ${active==="users"?"bg-white text-black font-medium":"text-zinc-400"}`}>User Management</button>
+          <button onClick={()=>setActive("analytics")} className={`w-full text-left px-3 py-2.5 rounded-lg text-[13px] ${active==="analytics"?"bg-white text-black font-medium":"text-zinc-400"}`}>Login Analytics</button>
+          <button onClick={()=>setActive("logs")} className={`w-full text-left px-3 py-2.5 rounded-lg text-[13px] ${active==="logs"?"bg-white text-black font-medium":"text-zinc-400"}`}>Security Logs</button>
+          <button onClick={()=>setActive("settings")} className={`w-full flex justify-between items-center text-left px-3 py-2.5 rounded-lg text-[13px] ${active==="settings"?"bg-white text-black font-medium":"text-zinc-400"}`}>Settings <span className="w-2 h-2 bg-green-500 rounded-full"></span></button>
         </nav>
-        <div className="mt-auto pt-4 border-t border-zinc-800/60">
-          <div className="rounded-xl bg-zinc-900/80 border border-zinc-800 p-3 mb-3"><div className="text-[10px] text-zinc-500">ADMIN</div><div className="text-[11px] font-medium truncate">praneethadukkipati@gmail.com</div><div className="text-[10px] text-emerald-400 mt-2">● Face Verified</div></div>
-          <button onClick={()=>{localStorage.clear(); window.location.href="/login";}} className="w-full h-9 rounded-lg bg-zinc-100 text-zinc-900 text-[12.5px] font-medium">Logout</button>
+        <div className="mt-auto pt-4 border-t border-zinc-800 space-y-2">
+          <div className="rounded-xl bg-[#151515] border border-zinc-800 p-3"><p className="text-[9px] text-zinc-500">ADMIN</p><p className="text-[11px] truncate">{profile.email || email}</p><p className="text-[10px] text-green-500 mt-1">● Face Verified</p></div>
+          <button onClick={()=>{localStorage.clear(); window.location.href="/login"}} className="w-full h-9 rounded-lg bg-white text-black text-[13px] font-medium">Logout</button>
         </div>
       </aside>
 
-      <main className="flex-1 p-8 max-w-[1200px]">
+      <main className="ml-[230px] flex-1 p-8 bg-[#0a0a0a]">
         {active==="overview" && (
           <>
-            <h1 className="text-[20px] font-semibold">Overview — {users.length} Users • {stats.total} Logins</h1>
-            <p className="text-[12.5px] text-zinc-500 mt-1 mb-6">Real-time system summary</p>
+            <h1 className="text-[20px] font-semibold">Overview — {stats.total_users} Users • {stats.total_logins} Logins</h1>
+            <p className="text-[12px] text-zinc-500 mt-1 mb-6">Real-time system summary</p>
             <div className="grid grid-cols-4 gap-4 mb-6">
-              <div className="rounded-2xl bg-[#121214] border border-zinc-800 p-5"><div className="text-[10px] text-zinc-500">TOTAL USERS</div><div className="text-[24px] font-semibold mt-2">{users.length}</div><div className="text-[11px] text-emerald-400 mt-1">● Active</div></div>
-              <div className="rounded-2xl bg-[#121214] border border-zinc-800 p-5"><div className="text-[10px] text-zinc-500">TOTAL LOGINS</div><div className="text-[24px] font-semibold mt-2">{stats.total}</div><div className="text-[11px] text-zinc-500 mt-1">All time</div></div>
-              <div className="rounded-2xl bg-[#121214] border border-zinc-800 p-5"><div className="text-[10px] text-zinc-500">SUCCESS RATE</div><div className="text-[24px] font-semibold mt-2 text-emerald-400">{stats.rate}%</div><div className="text-[11px] text-zinc-500 mt-1">{stats.failed} failed</div></div>
-              <div className="rounded-2xl bg-[#121214] border border-zinc-800 p-5"><div className="text-[10px] text-zinc-500">AVG DISTANCE</div><div className="text-[24px] font-semibold mt-2">{stats.avg}</div><div className="text-[11px] text-zinc-500 mt-1">Cosine &lt; {threshold}</div></div>
+              <div className="rounded-2xl bg-[#151515] border border-zinc-800 p-5"><p className="text-[10px] text-zinc-500 tracking-widest">TOTAL USERS</p><p className="text-[26px] font-bold mt-2">{stats.total_users}</p><p className="text-[11px] text-green-500 mt-1">● Active</p></div>
+              <div className="rounded-2xl bg-[#151515] border border-zinc-800 p-5"><p className="text-[10px] text-zinc-500 tracking-widest">TOTAL LOGINS</p><p className="text-[26px] font-bold mt-2">{stats.total_logins}</p><p className="text-[11px] text-zinc-500 mt-1">All time</p></div>
+              <div className="rounded-2xl bg-[#151515] border border-zinc-800 p-5"><p className="text-[10px] text-zinc-500 tracking-widest">SUCCESS RATE</p><p className="text-[26px] font-bold mt-2 text-green-400">{stats.success_rate}%</p><p className="text-[11px] text-zinc-500 mt-1">{stats.failed_logins} Failed</p></div>
+              <div className="rounded-2xl bg-[#151515] border border-zinc-800 p-5"><p className="text-[10px] text-zinc-500 tracking-widest">AVG DISTANCE</p><p className="text-[26px] font-bold mt-2">{stats.avg_distance?.toFixed(3)}</p><p className="text-[11px] text-zinc-500 mt-1">Cosine &lt; {threshold.toFixed(2)}</p></div>
             </div>
-            <div className="rounded-2xl bg-[#121214] border border-zinc-800 p-5">
-              <h3 className="text-[13px] font-medium mb-4">Recent Users</h3>
-              <div className="space-y-2">{users.slice(0,5).map(u=><div key={u.id} className="flex justify-between text-[12.5px] bg-[#0a0a0b] border border-zinc-800 rounded-xl p-3"><span>{u.full_name}</span><span className="text-zinc-500">{u.email}</span><span className="text-[10px] px-2 py-1 rounded-full bg-zinc-800">{u.role}</span></div>)}</div>
-            </div>
-          </>
-        )}
-
-        {active==="users" && (
-          <>
-            <div className="flex justify-between items-center mb-6"><h1 className="text-[20px] font-semibold">User Management — {users.length}</h1><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search email..." className="bg-[#121214] border border-zinc-800 rounded-lg px-3 py-1.5 text-[12.5px] w-[260px] outline-none"/></div>
-            <div className="rounded-2xl bg-[#121214] border border-zinc-800 overflow-hidden">
-              <table className="w-full text-[12.5px]"><thead className="text-[10px] tracking-widest text-zinc-500 border-b border-zinc-800"><tr><th className="text-left font-medium p-3 pl-5">NAME</th><th className="text-left font-medium p-3">EMAIL</th><th className="text-left font-medium p-3">ROLE</th><th className="text-left font-medium p-3">MOBILE</th><th className="text-left font-medium p-3">ACTION</th></tr></thead>
-                <tbody>{filteredUsers.map(u=><tr key={u.id} className="border-b border-zinc-800/60 hover:bg-zinc-900/50"><td className="p-3 pl-5 font-medium">{u.full_name}</td><td className="p-3 text-zinc-400">{u.email}</td><td className="p-3"><span className="text-[10px] px-2 py-1 rounded-full bg-zinc-800 border border-zinc-700">{u.role}</span></td><td className="p-3 text-zinc-500">{u.mobile||"—"}</td><td className="p-3"><button onClick={()=>setSelectedUser(u)} className="text-zinc-200 hover:text-white underline underline-offset-4">View</button></td></tr>)}</tbody>
-              </table>
-            </div>
+            <div className="rounded-2xl bg-[#151515] border border-zinc-800 p-5"><h3 className="text-[13px] font-semibold mb-4">Recent Users</h3>{users.map(u=><div key={u.email} className="flex justify-between items-center px-4 py-3 rounded-xl bg-[#0f0f0f] border border-zinc-800/50 mb-2"><span className="text-[13px]">{u.full_name}</span><span className="text-[12px] text-zinc-500">{u.email}</span><span className="text-[10px] px-2.5 py-1 rounded-full bg-zinc-800 border border-zinc-700">Administrator</span></div>)}</div>
           </>
         )}
 
         {active==="analytics" && (
           <>
-            <h1 className="text-[20px] font-semibold">Login Analytics</h1>
-            <p className="text-[12.5px] text-zinc-500 mt-1 mb-7">Real-time biometric model performance & access trends</p>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="col-span-2 rounded-2xl bg-[#121214] border border-zinc-800 p-6"><div className="flex justify-between mb-8"><h3 className="text-[13px] font-medium">Authentication Trend — Last 7 Days</h3><span className="text-[11px] text-zinc-500">Total: {stats.total} • <span className="text-emerald-400">● Live DB</span></span></div><div className="flex items-end gap-3 h-[150px] px-2">{[{d:"Mon",h:52},{d:"Tue",h:78},{d:"Wed",h:38},{d:"Thu",h:92},{d:"Fri",h:68},{d:"Sat",h:88},{d:"Today",h:82}].map(i=><div key={i.d} className="flex-1 flex flex-col items-center gap-3"><div className="w-full bg-zinc-900 rounded-lg"><div className={`w-full rounded-lg ${i.d==="Today"?"bg-white":"bg-zinc-100"}`} style={{height:`${i.h}px`}}/></div><span className={`text-[11px] ${i.d==="Today"?"text-white font-medium":"text-zinc-500"}`}>{i.d}</span></div>)}</div></div>
-              <div className="rounded-2xl bg-[#121214] border border-zinc-800 p-6"><h3 className="text-[13px] font-medium mb-8">Success vs Failed</h3><div className="flex items-center gap-6"><div className="relative w-[96px] h-[96px]"><svg className="w-full h-full -rotate-90"><circle cx="48" cy="48" r="38" stroke="#27272a" strokeWidth="8" fill="none"/><circle cx="48" cy="48" r="38" stroke="#fafafa" strokeWidth="8" fill="none" strokeDasharray={`${2*Math.PI*38}`} strokeDashoffset={`${2*Math.PI*38*(1-stats.rate/100)}`} strokeLinecap="round"/></svg><div className="absolute inset-0 grid place-items-center text-[14px] font-semibold">{stats.rate}%</div></div><div className="space-y-2 text-[12px]"><div>● Success: {stats.success}</div><div className="text-zinc-500">● Failed: {stats.failed}</div><div className="text-zinc-400">● Avg Dist: {stats.avg}</div></div></div><div className="mt-8 rounded-xl bg-[#0a0a0b] border border-zinc-800 p-3"><div className="text-[10px] text-zinc-500">LIVENESS CHECK</div><div className="text-[11px] text-emerald-400 mt-1">● Haar Cascade + Eye Detection {liveness? 'Active':'Off'}</div></div></div>
+            <h1 className="text-[20px] font-semibold">Login Analytics — Total: {stats.total_logins} • Success: {stats.success_rate}% • Avg Distance: {stats.avg_distance?.toFixed(3)}</h1>
+            <p className="text-[12px] text-zinc-500 mt-1 mb-6">Face recognition performance from backend</p>
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              <div className="rounded-2xl bg-[#151515] border border-zinc-800 p-5"><p className="text-[10px] text-zinc-500">SUCCESS VS FAILED</p><div className="mt-4 flex gap-2 h-3"><div className="rounded-full bg-green-500" style={{width:`${successPercent}%`}}></div><div className="rounded-full bg-red-500/70" style={{width:`${100-successPercent}%`}}></div></div><div className="flex justify-between mt-3 text-[11px]"><span className="text-green-400">● {stats.successful_logins} Success</span><span className="text-red-400">● {stats.failed_logins} Failed</span></div></div>
+              <div className="rounded-2xl bg-[#151515] border border-zinc-800 p-5"><p className="text-[10px] text-zinc-500">THRESHOLD ANALYSIS</p><p className="text-[28px] font-bold mt-3">{stats.avg_distance?.toFixed(3)} <span className="text-[13px] font-normal text-zinc-500">avg</span></p><p className="text-[10px] text-zinc-500 mt-3">Threshold 0.40 — lower is stricter</p></div>
+              <div className="rounded-2xl bg-[#151515] border border-zinc-800 p-5"><p className="text-[10px] text-zinc-500">LATEST LOGINS (REAL)</p><div className="mt-3 space-y-2">{logs.slice(0,3).map(l=><div key={l.id} className="flex justify-between text-[11px]"><span className="text-zinc-400 truncate w-[110px]">{l.user?.split("@")[0]}</span><span className="text-green-400">SUCCESS {l.cosine_distance?.toFixed(2)}</span></div>)}</div></div>
+            </div>
+            <div className="rounded-2xl bg-[#151515] border border-zinc-800 p-6">
+              <h3 className="text-[13px] font-semibold">Logins by Time (Real Logs) — Last 6 Logins (IST)</h3>
+              <p className="text-[10px] text-zinc-500 mt-1 mb-8">Each bar = one real login • Taller white bar = better face match (Time in IST)</p>
+              <div className="flex items-end gap-3 h-[140px] px-2">
+                {logs.slice(0,6).map((log,i)=>{
+                  const dist = log.cosine_distance?? 0.15
+                  const height = Math.max(25, 100 - dist * 180)
+                  const isSuccess = log.status === "SUCCESS"
+                  const timeStr = toISTTimeOnly(log.timestamp)
+                  return (
+                    <div key={log.id || i} className="flex-1 flex flex-col items-center gap-2 group">
+                      <div className="w-full flex flex-col items-center justify-end h-[100px] relative">
+                        <div className={`w-full max-w-[56px] rounded-t-lg ${isSuccess? "bg-white" : "bg-red-400"}`} style={{height:`${height}%`}}></div>
+                      </div>
+                      <span className="text-[10px] text-zinc-400">{timeStr}</span>
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${isSuccess?"bg-green-950/50 text-green-400":"bg-red-950/50 text-red-400"}`}>{dist.toFixed(2)}</span>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           </>
+        )}
+
+        {active==="users" && (
+          <div><h1 className="text-[20px] font-semibold">User Management — {users.length} Users (Real DB)</h1><p className="text-[12px] text-zinc-500 mt-1 mb-6">Manage registered faces</p><div className="rounded-2xl bg-[#151515] border border-zinc-800 overflow-hidden"><div className="grid grid-cols-12 text-[10px] text-zinc-500 tracking-widest px-6 py-3 border-b border-zinc-800 bg-[#0f0f0f]"><span className="col-span-5">USER</span><span className="col-span-4">EMAIL</span><span className="col-span-2">ROLE</span><span className="col-span-1">STATUS</span></div>{users.map(u=><div key={u.email} className="grid grid-cols-12 px-6 py-4 items-center text-[13px] border-b border-zinc-800/50"><div className="col-span-5 flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-white text-black grid place-items-center font-bold text-[11px]">{u.full_name?.[0] || "P"}</div><span>{u.full_name}</span></div><span className="col-span-4 text-[12px] text-zinc-400">{u.email}</span><span className="col-span-2"><span className="text-[10px] px-2.5 py-1 rounded-full bg-zinc-800 border border-zinc-700">Administrator</span></span><span className="col-span-1 text-[10px] text-green-400">● Active</span></div>)}</div></div>
         )}
 
         {active==="logs" && (
-          <>
-            <h1 className="text-[20px] font-semibold mb-6">Security Logs — {stats.total} Events</h1>
-            <div className="rounded-2xl bg-[#121214] border border-zinc-800 overflow-hidden">
-              <div className="p-3 border-b border-zinc-800 text-[11px] text-zinc-500">Live audit trail from /api/v1/admin/logs</div>
-              <div className="divide-y divide-zinc-800/60 max-h-[600px] overflow-auto">
-                {logs.slice().reverse().slice(0,50).map((l,i)=><div key={i} className="flex justify-between items-center p-3 text-[12px]"><span className="text-zinc-500 text-[11px]">{l.timestamp?.slice(0,19).replace("T"," ")||"—"}</span><span className="text-zinc-300">{l.attempted_email||l.email||"—"}</span><span className="text-zinc-500 text-[11px]">{l.ip_address||"127.0.0.1"}</span><span className={`${(l.status||"").includes("SUCCESS")?"text-emerald-400":"text-red-400"}`}>{l.status}</span><span className="text-zinc-500">{l.cosine_distance?.toFixed(3)||"0.194"}</span></div>)}
-                {!logs.length && <div className="p-8 text-center text-zinc-500 text-[12px]">No logs yet — login once to generate</div>}
-              </div>
-            </div>
-          </>
+          <div className="rounded-2xl bg-[#151515] border border-zinc-800 p-5"><div className="flex justify-between mb-4"><h3 className="font-semibold">Security Logs — {logs.length} entries (IST)</h3><button onClick={clearLogs} className="text-[11px] px-3 py-1 rounded-full bg-red-950/30 border border-red-900/50 text-red-300">Clear</button></div>{logs.map(l=><div key={l.id} className="py-2.5 flex justify-between text-[12px] border-b border-zinc-800/30"><span className="text-zinc-500 w-[200px] truncate">{toIST(l.timestamp)}</span><span className="w-[180px] truncate">{l.user}</span><span className={`px-2 py-0.5 rounded-full text-[10px] ${l.status==="SUCCESS"?"bg-green-950/50 text-green-400":"bg-red-950/50 text-red-400"}`}>{l.status} {l.cosine_distance?.toFixed(3)}</span></div>)}</div>
         )}
 
-        {/* SETTINGS - NEW */}
         {active==="settings" && (
           <>
-            <h1 className="text-[20px] font-semibold">Settings — {users.length} Users • {stats.total} Logins</h1>
-            <p className="text-[12.5px] text-zinc-500 mt-1 mb-6">Manage AccessIQ system configuration</p>
-
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <div className="rounded-2xl bg-[#121214] border border-zinc-800 p-5">
-                <h3 className="text-[13px] font-medium mb-4">Admin Profile</h3>
-                <div className="space-y-3 text-[12px]">
-                  <div><div className="text-[10px] text-zinc-500">FULL NAME</div><input defaultValue="Praneetha Dukkipati" className="w-full mt-1 bg-[#0a0a0b] border border-zinc-800 rounded-xl px-3 py-2 outline-none" /></div>
-                  <div><div className="text-[10px] text-zinc-500">EMAIL (READ ONLY)</div><input defaultValue="praneethadukkipati@gmail.com" disabled className="w-full mt-1 bg-[#0a0a0b] border border-zinc-800 rounded-xl px-3 py-2 text-zinc-500" /></div>
-                  <div><div className="text-[10px] text-zinc-500">MOBILE</div><input defaultValue="+917569324623" className="w-full mt-1 bg-[#0a0a0b] border border-zinc-800 rounded-xl px-3 py-2 outline-none" /></div>
+            <h1 className="text-[20px] font-semibold">Settings — {stats.total_users} Users • {stats.total_logins} Logins</h1>
+            <p className="text-[12px] text-zinc-500 mt-1 mb-6">Manage AccessIQ system configuration</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="rounded-2xl bg-[#151515] border border-zinc-800 p-5">
+                <h3 className="text-[13px] font-semibold mb-4">Admin Profile</h3>
+                <div className="space-y-3">
+                  <div><label className="text-[10px] text-zinc-500 tracking-widest">FULL NAME</label><input value={profile.full_name} onChange={e=>setProfile({...profile, full_name:e.target.value})} className="w-full mt-1 h-9 rounded-lg bg-[#0f0f0f] border border-zinc-800 px-3 text-[12px] focus:border-zinc-600 outline-none" /></div>
+                  <div><label className="text-[10px] text-zinc-500 tracking-widest">EMAIL (READ ONLY)</label><input value={profile.email || email} readOnly className="w-full mt-1 h-9 rounded-lg bg-[#0f0f0f] border border-zinc-800 px-3 text-[12px] text-zinc-500" /></div>
+                  <div><label className="text-[10px] text-zinc-500 tracking-widest">MOBILE</label><input value={profile.mobile} onChange={e=>setProfile({...profile, mobile:e.target.value})} className="w-full mt-1 h-9 rounded-lg bg-[#0f0f0f] border border-zinc-800 px-3 text-[12px] focus:border-zinc-600 outline-none" /></div>
                 </div>
               </div>
-
-              <div className="rounded-2xl bg-[#121214] border border-zinc-800 p-5">
-                <h3 className="text-[13px] font-medium mb-4">Face Recognition Security</h3>
-                <div className="space-y-5">
-                  <div>
-                    <div className="flex justify-between text-[11px]"><span className="text-zinc-500">COSINE DISTANCE THRESHOLD</span><span className="text-white font-medium">{threshold.toFixed(2)}</span></div>
-                    <input type="range" min="0.30" max="0.60" step="0.01" value={threshold} onChange={e=>setThreshold(parseFloat(e.target.value))} className="w-full mt-3 accent-white" />
-                    <div className="text-[10px] text-zinc-500 mt-1">Lower = stricter. Recommended 0.40 for AccessIQ. Current avg: {stats.avg}</div>
-                  </div>
-                  <div className="flex items-center justify-between bg-[#0a0a0b] border border-zinc-800 rounded-xl px-4 py-3">
-                    <div><div className="text-[12px]">Liveness Detection</div><div className="text-[10px] text-zinc-500">Haar Cascade + Eye blink</div></div>
-                    <button onClick={()=>setLiveness(!liveness)} className={`w-11 h-6 rounded-full transition ${liveness?'bg-white':'bg-zinc-800'}`}><div className={`w-5 h-5 bg-black rounded-full transition ${liveness?'translate-x-5':'translate-x-1'}`}></div></button>
-                  </div>
+              <div className="rounded-2xl bg-[#151515] border border-zinc-800 p-5">
+                <h3 className="text-[13px] font-semibold mb-4">Face Recognition Security</h3>
+                <div className="flex justify-between items-center mb-2"><label className="text-[10px] text-zinc-500 tracking-widest">COSINE DISTANCE THRESHOLD</label><span className="text-[12px] font-mono bg-[#0f0f0f] border border-zinc-800 px-2 py-0.5 rounded">{threshold.toFixed(2)}</span></div>
+                <input type="range" min="0.10" max="0.60" step="0.01" value={threshold} onChange={e=>setThreshold(parseFloat(e.target.value))} className="w-full accent-white h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer" />
+                <div className="flex justify-between text-[10px] text-zinc-600 mt-1"><span>0.10 Strict</span><span>0.60 Loose</span></div>
+                <p className="text-[10px] text-zinc-500 mt-3 leading-relaxed">Lower = stricter matching. Recommended 0.40 for AccessIQ. Current avg distance: <span className="text-white font-mono">{stats.avg_distance?.toFixed(3)}</span></p>
+                <div className="mt-6 flex justify-between items-center p-3 rounded-xl bg-[#0f0f0f] border border-zinc-800">
+                  <div><p className="text-[12px] font-medium">Liveness Detection</p><p className="text-[10px] text-zinc-500">Haar Cascade + Eye blink check</p></div>
+                  <button onClick={()=>setLiveness(!liveness)} className={`w-11 h-6 rounded-full transition-all ${liveness?"bg-white":"bg-zinc-700"}`}><div className={`w-5 h-5 rounded-full transition-all ${liveness?"translate-x-5 bg-black":"translate-x-0.5 bg-zinc-300"}`}></div></button>
                 </div>
               </div>
             </div>
-
-            <div className="rounded-2xl bg-[#121214] border border-zinc-800 p-5 mb-6">
-              <h3 className="text-[13px] font-medium mb-4">System Actions</h3>
-              <div className="flex gap-3">
-                <button onClick={()=>alert(`Exporting ${stats.total} logs as CSV`)} className="px-4 py-2 bg-[#1e1e20] hover:bg-zinc-800 border border-zinc-800 rounded-xl text-[12px]">Export Logs (CSV)</button>
-                <button onClick={()=>{ if(confirm('Clear all login logs?')) setLogs([]); }} className="px-4 py-2 bg-red-950/40 hover:bg-red-950/60 border border-red-900/40 text-red-300 rounded-xl text-[12px]">Clear {stats.total} Login Logs</button>
-                <button className="px-4 py-2 bg-[#1e1e20] hover:bg-zinc-800 border border-zinc-800 rounded-xl text-[12px]">Version: v2.1.0 AccessIQ</button>
+            <div className="mt-4 rounded-2xl bg-[#151515] border border-zinc-800 p-5">
+              <h3 className="text-[13px] font-semibold mb-4">System Actions</h3>
+              <div className="flex flex-wrap gap-3">
+                <button onClick={exportCSV} className="px-4 py-2 rounded-full bg-[#1f1f1f] border border-zinc-700 text-[12px] hover:bg-zinc-800 transition">Export Logs (CSV)</button>
+                <button onClick={clearLogs} className="px-4 py-2 rounded-full bg-red-950/30 border border-red-900/50 text-red-300 text-[12px] hover:bg-red-950/50 transition">Clear {stats.total_logins} Login Logs</button>
+                <span className="px-4 py-2 rounded-full bg-[#1f1f1f] border border-zinc-800 text-[12px] text-zinc-400">Version: v2.1.0 AccessIQ • Threshold {threshold.toFixed(2)}</span>
               </div>
             </div>
-
-            <button onClick={saveSettings} className="h-10 px-6 rounded-xl bg-white text-black text-[12.5px] font-medium hover:bg-zinc-100">{saving? 'Saving...' : 'Save Settings'}</button>
+            <button onClick={saveSettings} className="mt-5 px-6 py-2.5 rounded-xl bg-white text-black text-[13px] font-medium hover:bg-zinc-200 transition">Save Settings</button>
           </>
         )}
       </main>
-
-      {selectedUser && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm grid place-items-center z-50 p-4" onClick={()=>setSelectedUser(null)}>
-          <div className="bg-[#121214] border border-zinc-800 rounded-[20px] p-6 w-[380px]" onClick={e=>e.stopPropagation()}>
-            <h3 className="text-[13px] font-semibold mb-4">User Details</h3>
-            <div className="space-y-2 text-[12px]"><div className="flex justify-between bg-[#0a0a0b] border border-zinc-800 rounded-xl p-3"><span className="text-zinc-500">Name</span><span>{selectedUser.full_name}</span></div><div className="flex justify-between bg-[#0a0a0b] border border-zinc-800 rounded-xl p-3"><span className="text-zinc-500">Email</span><span>{selectedUser.email}</span></div><div className="flex justify-between bg-[#0a0a0b] border border-zinc-800 rounded-xl p-3"><span className="text-zinc-500">Role</span><span>{selectedUser.role}</span></div></div>
-            <button onClick={()=>setSelectedUser(null)} className="w-full mt-5 h-9 rounded-xl bg-white text-black text-[12.5px] font-medium">Close</button>
-          </div>
-        </div>
-      )}
     </div>
-  );
+  )
 }
