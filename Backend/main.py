@@ -38,11 +38,10 @@ UTC = timezone.utc
 def to_ist(dt):
     if dt is None:
         return None
-
-    # Database timestamps without timezone information are treated as UTC.
+    # If DB gave naive time, it is already IST, don't add 5:30 again
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-
+        dt = dt.replace(tzinfo=IST)
+        return dt.isoformat()
     return dt.astimezone(IST).isoformat()
 
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
@@ -171,10 +170,13 @@ def login(data: PasswordlessLogin, request: Request, db: Session = Depends(get_d
             db.commit()
             raise HTTPException(status_code=403, detail=f"Access Denied: {matched_user_obj.email} not authorized as Admin.")
     new_log = models.LoginHistory(
-        user_id=matched_user_obj.id if matched_user_obj else None,
-        attempted_email=best_match_user if best_match_user else "unknown",
-        status="SUCCESS" if is_success else "FAILED",
-        cosine_distance=float(min_distance), ip_address=ip_address
+    user_id=matched_user_obj.id if matched_user_obj else None,
+    attempted_email=best_match_user if best_match_user else "unknown",
+    status="SUCCESS" if is_success else "FAILED",
+    cosine_distance=float(min_distance),
+    ip_address=ip_address,
+    timestamp=datetime.now(IST)  # <-- ADD THIS
+
     )
     db.add(new_log)
     db.commit()
