@@ -1,4 +1,4 @@
-# backend/main.py - AccessIQ FIXED
+# backend/main.py - AccessIQ FIXED with IST time
 import base64
 import cv2
 import numpy as np
@@ -7,7 +7,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
 
 import models
@@ -29,7 +29,21 @@ app.add_middleware(
 )
 
 ADMIN_EMAILS = ["admin@accessiq.com", "praneethadukkipati@gmail.com"]
-THRESHOLD = 0.97 # FIXED: was 0.18 - too strict, no one could login
+THRESHOLD = 0.45 # FIXED: was 0.18 - too strict, no one could login
+
+# IST timezone
+IST = timezone(timedelta(hours=5, minutes=30))
+UTC = timezone.utc
+
+def to_ist(dt):
+    if dt is None:
+        return None
+
+    # Database timestamps without timezone information are treated as UTC.
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+
+    return dt.astimezone(IST).isoformat()
 
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
@@ -168,7 +182,6 @@ def login(data: PasswordlessLogin, request: Request, db: Session = Depends(get_d
         return {"status": "success", "message": "Face Matched!", "email": best_match_user, "distance": min_distance}
     raise HTTPException(status_code=401, detail=f"Face not recognized. Best match distance {min_distance:.2f} > Threshold {THRESHOLD}. Try again with registered face.")
 
-# FIXED: Endpoints your Frontend Settings.jsx is actually calling
 @app.get("/api/v1/auth/profile/{email}")
 def get_auth_profile(email: str, db: Session = Depends(get_db)):
     email = email.lower().strip()
@@ -217,7 +230,7 @@ def get_admin_users(db: Session = Depends(get_db)):
 @app.get("/api/v1/admin/logs")
 def get_admin_system_logs(db: Session = Depends(get_db)):
     logs = db.query(models.LoginHistory).order_by(models.LoginHistory.timestamp.desc()).all()
-    return {"status": "success", "logs": [{"id": log.id, "timestamp": log.timestamp.strftime("%Y-%m-%d %H:%M:%S") if log.timestamp else "", "level": "INFO" if log.status == "SUCCESS" else "WARN", "event": f"Verification {log.status} (Distance: {log.cosine_distance:.2f})" if log.cosine_distance else f"Login {log.status}", "user": log.attempted_email or "unknown", "email": log.attempted_email, "status": log.status, "cosine_distance": log.cosine_distance, "ip_address": log.ip_address} for log in logs]}
+    return {"status": "success", "logs": [{"id": log.id, "timestamp": to_ist(log.timestamp), "level": "INFO" if log.status == "SUCCESS" else "WARN", "event": f"Verification {log.status} (Distance: {log.cosine_distance:.2f})" if log.cosine_distance else f"Login {log.status}", "user": log.attempted_email or "unknown", "email": log.attempted_email, "status": log.status, "cosine_distance": log.cosine_distance, "ip_address": log.ip_address} for log in logs]}
 
 @app.get("/api/v1/admin/login-history")
 def get_admin_login_history_alias(db: Session = Depends(get_db)):
@@ -236,7 +249,7 @@ def get_user_inbox(email: str, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(welcome_msg)
         messages = [welcome_msg]
-    return {"status": "success", "messages": [{"id": m.id, "sender": m.sender, "subject": m.subject, "body": m.body, "timestamp": m.timestamp.strftime("%Y-%m-%d %H:%M") if m.timestamp else "", "is_read": m.is_read} for m in messages]}
+    return {"status": "success", "messages": [{"id": m.id, "sender": m.sender, "subject": m.subject, "body": m.body, "timestamp": to_ist(m.timestamp), "is_read": m.is_read} for m in messages]}
 
 @app.post("/api/v1/inbox/send")
 def send_message(data: SendMessageSchema, db: Session = Depends(get_db)):
@@ -261,7 +274,7 @@ def get_user_alerts(email: str, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(default_alert)
         alerts = [default_alert]
-    return {"status": "success", "alerts": [{"id": a.id, "title": a.title, "message": a.message, "severity": a.severity, "timestamp": a.timestamp.strftime("%Y-%m-%d %H:%M") if a.timestamp else "", "is_read": a.is_read} for a in alerts]}
+    return {"status": "success", "alerts": [{"id": a.id, "title": a.title, "message": a.message, "severity": a.severity, "timestamp": to_ist(a.timestamp), "is_read": a.is_read} for a in alerts]}
 
 @app.get("/api/v1/login-history/{email}")
 def get_login_history(email: str, db: Session = Depends(get_db)):
@@ -270,7 +283,7 @@ def get_login_history(email: str, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
     logs = db.query(models.LoginHistory).filter(models.LoginHistory.user_id == user.id).order_by(models.LoginHistory.timestamp.desc()).all()
-    return {"status": "success", "logs": [{"id": log.id, "status": log.status, "cosine_distance": log.cosine_distance, "ip_address": log.ip_address, "timestamp": log.timestamp.strftime("%Y-%m-%d %H:%M") if log.timestamp else ""} for log in logs]}
+    return {"status": "success", "logs": [{"id": log.id, "status": log.status, "cosine_distance": log.cosine_distance, "ip_address": log.ip_address, "timestamp": to_ist(log.timestamp)} for log in logs]}
 
 @app.get("/api/v1/user/settings")
 def get_user_settings_alias(email: str, db: Session = Depends(get_db)):

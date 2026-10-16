@@ -3,7 +3,9 @@ import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+IST = timezone(timedelta(hours=5, minutes=30))
 
 # Assuming your models and database session dependency are imported here
 # from database import get_db
@@ -67,14 +69,14 @@ def biometric_login(payload: dict, db: Session = Depends(get_db)):
 
         # 5. Calculate cosine distance
         distance = calculate_cosine_distance(live_vector, stored_vector)
-        match_success = distance < 0.4  # Strict security threshold
+        match_success = distance < 0.4 # Strict security threshold
 
-        # 6. Log attempt in LoginHistory table
+        # 6. Log attempt in LoginHistory table with CORRECT IST TIME
         audit_log = LoginHistory(
             user_email=email,
             success=match_success,
             match_score=float(distance),
-            timestamp=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            timestamp=datetime.now(IST)
         )
         db.add(audit_log)
         db.commit()
